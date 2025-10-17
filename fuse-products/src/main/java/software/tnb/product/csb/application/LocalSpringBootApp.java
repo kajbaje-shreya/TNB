@@ -80,6 +80,7 @@ public class LocalSpringBootApp extends SpringBootApp {
     @Override
     public void start() {
         if (shouldRun()) {
+            logCounter++;
             Path logFile = getLogPath();
             ProcessBuilder processBuilder = new ProcessBuilder(getCommand()).redirectOutput(logFile.toFile());
 
@@ -117,13 +118,7 @@ public class LocalSpringBootApp extends SpringBootApp {
             }
         }
 
-        if (logStream != null) {
-            logStream.stop();
-        }
-
-        if (log != null) {
-            log.save();
-        }
+        super.stop();
     }
 
     @Override

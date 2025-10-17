@@ -50,6 +50,7 @@ public class LocalQuarkusApp extends QuarkusApp {
 
     @Override
     public void start() {
+        logCounter++;
         Path logFile = getLogPath();
         ProcessBuilder processBuilder = new ProcessBuilder(getCommand()).redirectOutput(logFile.toFile());
 
@@ -86,13 +87,7 @@ public class LocalQuarkusApp extends QuarkusApp {
             }
         }
 
-        if (logStream != null) {
-            logStream.stop();
-        }
-
-        if (log != null) {
-            log.save();
-        }
+        super.stop();
     }
 
     @Override
