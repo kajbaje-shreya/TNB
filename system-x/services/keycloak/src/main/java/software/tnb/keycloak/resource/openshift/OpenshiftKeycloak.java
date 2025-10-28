@@ -243,7 +243,7 @@ public class OpenshiftKeycloak extends software.tnb.keycloak.service.Keycloak
                     .editOrNewSpec()
                         .addNewContainer()
                             .withName(postgresDBName)
-                            .withImage("quay.io/fuse_qe/postgres:latest")
+                            .withImage("registry.redhat.io/rhel8/postgresql-16:latest")
                             .addAllToEnv(postgresEnvs())
                         .endContainer()
                         .withServiceAccount(serviceAccountName)
