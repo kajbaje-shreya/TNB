@@ -1,6 +1,5 @@
 package software.tnb.product.cq.application;
 
-import software.tnb.common.config.TestConfiguration;
 import software.tnb.common.openshift.OpenshiftClient;
 import software.tnb.common.utils.HTTPUtils;
 import software.tnb.product.application.Phase;
@@ -9,6 +8,7 @@ import software.tnb.product.customizer.Customizer;
 import software.tnb.product.customizer.component.rest.RestCustomizer;
 import software.tnb.product.endpoint.Endpoint;
 import software.tnb.product.integration.builder.AbstractIntegrationBuilder;
+import software.tnb.product.integration.builder.AbstractMavenGitIntegrationBuilder;
 import software.tnb.product.log.OpenshiftLog;
 import software.tnb.product.log.stream.LogStream;
 import software.tnb.product.log.stream.OpenshiftLogStream;
@@ -23,7 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,14 +58,15 @@ public class OpenshiftQuarkusApp extends QuarkusApp {
     @Override
     public void start() {
         logCounter++;
+        setOpenshiftProperties(properties);
         LOG.trace("Creating service account for the integration {}", getName());
         ServiceAccount sa = new ServiceAccountBuilder().withNewMetadata().withName(getName()).endMetadata().build();
         OpenshiftClient.get().serviceAccounts().resource(sa).serverSideApply();
 
         final BuildRequest.Builder builder = new BuildRequest.Builder()
-            .withBaseDirectory(TestConfiguration.appLocation().resolve(getName()))
+            .withBaseDirectory(appDir)
             .withArgs("package")
-            .withProperties(getProperties())
+            .withProperties(properties)
             .withLogFile(getLogPath(Phase.DEPLOY))
             .withLogMarker(LogStream.marker(getName(), Phase.DEPLOY));
         if (QuarkusConfiguration.isQuarkusNative()) {
@@ -128,23 +129,75 @@ public class OpenshiftQuarkusApp extends QuarkusApp {
         logStream = new OpenshiftLogStream(podSelector, LogStream.marker(getName()));
     }
 
-    private Map<String, String> getProperties() {
-        final Map<String, String> properties = new HashMap<>(Map.of(
-            "quarkus.kubernetes-client.master-url", OpenshiftClient.get().getConfiguration().getMasterUrl(),
+    private void setOpenshiftProperties(Map<String, String> properties) {
+        properties.putAll(Map.of("quarkus.kubernetes-client.master-url", OpenshiftClient.get().getConfiguration().getMasterUrl(),
             "quarkus.kubernetes-client.token", OpenshiftClient.get().getConfiguration().getAutoOAuthToken(),
             "quarkus.kubernetes-client.namespace", OpenshiftClient.get().getNamespace(),
             "quarkus.kubernetes-client.trust-certs", "true",
             "quarkus.kubernetes.deploy", "true",
             "quarkus.native.container-build", "true",
             "quarkus.openshift.build-strategy", "docker",
-            "quarkus.openshift.service-account", getName(),
-            "skipTests", "true"
-        ));
+            "quarkus.openshift.service-account", getName()));
+        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
+        if (isMac) {
+            properties.put("quarkus.native.container-runtime-options", "--platform=linux/amd64");
+        }
         if (!QuarkusConfiguration.isQuarkusNative()) {
             properties.put("quarkus.openshift.command", getJavaCommand());
         }
+
+        if (integrationBuilder instanceof AbstractMavenGitIntegrationBuilder<?> gitIntegrationBuilder) {
+            properties.putAll(gitIntegrationBuilder.getMavenProperties());
+        }
+
+        // Add volume configurations from IntegrationBuilder
+        addVolumeProperties(properties);
+
         properties.putAll(QuarkusConfiguration.fromSystemProperties());
-        return properties;
+    }
+
+    /**
+     * Adds Quarkus volume and volume mount properties for ConfigMaps, Secrets, and EmptyDirs.
+     */
+    private void addVolumeProperties(Map<String, String> properties) {
+        if (integrationBuilder == null || integrationBuilder.getVolumes().isEmpty()) {
+            return;
+        }
+
+        LOG.info("Adding {} volume(s) to Quarkus OpenShift deployment", integrationBuilder.getVolumes().size());
+
+        List<String> emptyDirVolumes = new ArrayList<>();
+
+        // Add volumes
+        for (int i = 0; i < integrationBuilder.getVolumes().size(); i++) {
+            var volume = integrationBuilder.getVolumes().get(i);
+            String volumeName = volume.name();
+
+            switch (volume.type()) {
+                case CONFIG_MAP:
+                    properties.put(String.format("quarkus.openshift.config-map-volumes.%s.config-map-name", volumeName), volume.source());
+                    break;
+                case SECRET:
+                    properties.put(String.format("quarkus.openshift.secret-volumes.%s.secret-name", volumeName), volume.source());
+                    break;
+                case EMPTY_DIR:
+                    emptyDirVolumes.add(volumeName);
+                    break;
+                default:
+                    throw new IllegalStateException("Unexpected value: " + volume.type());
+            }
+        }
+
+        if (!emptyDirVolumes.isEmpty()) {
+            properties.put("quarkus.openshift.empty-dir-volumes", String.join(",", emptyDirVolumes));
+        }
+
+        // Add volume mounts
+        for (var mount : integrationBuilder.getVolumeMounts()) {
+            String volumeName = mount.volumeName();
+            properties.put(String.format("quarkus.openshift.mounts.%s.path", volumeName), mount.mountPath());
+            properties.put(String.format("quarkus.openshift.mounts.%s.read-only", volumeName), String.valueOf(mount.readOnly()));
+        }
     }
 
     /**
@@ -166,7 +219,7 @@ public class OpenshiftQuarkusApp extends QuarkusApp {
         OpenshiftClient.get().routes().withName(getName()).delete();
         OpenshiftClient.get().services().withName(getName()).delete();
         OpenshiftClient.get().serviceAccounts().withName(getName()).delete();
-        Path openshiftResources = TestConfiguration.appLocation().resolve(getName()).resolve("target").resolve("kubernetes/openshift.yml");
+        Path openshiftResources = appDir.resolve("target").resolve("kubernetes/openshift.yml");
 
         try (InputStream is = IOUtils.toInputStream(Files.readString(openshiftResources), "UTF-8")) {
             LOG.info("Deleting openshift resources for integration from file {}", openshiftResources.toAbsolutePath());

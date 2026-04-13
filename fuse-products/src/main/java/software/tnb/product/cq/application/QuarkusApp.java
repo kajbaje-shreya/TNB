@@ -7,7 +7,10 @@ import software.tnb.common.utils.waiter.Waiter;
 import software.tnb.product.application.App;
 import software.tnb.product.application.Phase;
 import software.tnb.product.cq.configuration.QuarkusConfiguration;
+import software.tnb.product.git.GitRepository;
+import software.tnb.product.integration.builder.AbstractGitIntegrationBuilder;
 import software.tnb.product.integration.builder.AbstractIntegrationBuilder;
+import software.tnb.product.integration.builder.AbstractMavenGitIntegrationBuilder;
 import software.tnb.product.integration.generator.IntegrationGenerator;
 import software.tnb.product.log.stream.LogStream;
 import software.tnb.product.util.maven.BuildRequest;
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -32,29 +36,42 @@ public abstract class QuarkusApp extends App {
     private static final Logger LOG = LoggerFactory.getLogger(QuarkusApp.class);
 
     protected BooleanSupplier readinessCheck;
+    protected Path appDir;
+    protected Map<String, String> properties = new HashMap<>();
 
     public QuarkusApp(AbstractIntegrationBuilder<?> integrationBuilder) {
         super(integrationBuilder);
 
         this.integrationBuilder = integrationBuilder;
-
-        if (integrationBuilder.isJBang()) {
-            createUsingJBang();
+        this.properties.put("skipTests", "true");
+        boolean isMac = System.getProperty("os.name").toLowerCase().contains("mac");
+        boolean isLocal = !OpenshiftConfiguration.isOpenshift();
+        this.properties.put("quarkus.native.container-build", (isMac && isLocal) ? "false" : "true");
+        if (integrationBuilder instanceof AbstractGitIntegrationBuilder<?> gitIntegrationBuilder) {
+            Path gitClonedDirectory = new GitRepository(gitIntegrationBuilder).getPath();
+            this.appDir = gitIntegrationBuilder.getSubDirectory().map(gitClonedDirectory::resolve).orElse(gitClonedDirectory);
         } else {
-            createWithMaven();
+            this.appDir = TestConfiguration.appLocation().resolve(getName());
+            if (integrationBuilder.isJBang()) {
+                createUsingJBang();
+            } else {
+                createWithMaven();
+            }
+            customizeProject(integrationBuilder.getDependencies());
+            customizePlugins(integrationBuilder.getPlugins());
         }
 
-        customizeProject(integrationBuilder.getDependencies());
-        customizePlugins(integrationBuilder.getPlugins());
+        buildApp();
+    }
 
-        Map<String, String> properties = new HashMap<>(Map.of(
-            "skipTests", "true",
-            "quarkus.native.container-build", "true"
-        ));
+    protected void buildApp() {
         properties.putAll(QuarkusConfiguration.fromSystemProperties());
+        if (integrationBuilder instanceof AbstractMavenGitIntegrationBuilder<?> gitIntegrationBuilder) {
+            properties.putAll(gitIntegrationBuilder.getMavenProperties());
+        }
 
         BuildRequest.Builder requestBuilder = new BuildRequest.Builder()
-            .withBaseDirectory(TestConfiguration.appLocation().resolve(getName()))
+            .withBaseDirectory(appDir)
             .withArgs("clean", "package")
             .withProperties(properties)
             .withLogFile(getLogPath(Phase.BUILD))
@@ -96,7 +113,7 @@ public abstract class QuarkusApp extends App {
         String quarkusMavenPluginCreate = String.format("%s:%s:%s:create",
             QuarkusConfiguration.quarkusPlatformGroupId(), "quarkus-maven-plugin", QuarkusConfiguration.quarkusPlatformVersion());
 
-        Map<String, String> properties = new HashMap<>(Map.of(
+        Map<String, String> mavenProperties = new HashMap<>(Map.of(
             "projectGroupId", TestConfiguration.appGroupId(),
             "projectArtifactId", getName(),
             "projectVersion", TestConfiguration.appVersion(),
@@ -106,18 +123,18 @@ public abstract class QuarkusApp extends App {
             "extensions", OpenshiftConfiguration.isOpenshift() ? "openshift" : ""
         ));
 
-        properties.putAll(QuarkusConfiguration.fromSystemProperties());
+        mavenProperties.putAll(QuarkusConfiguration.fromSystemProperties());
 
         Maven.invoke(new BuildRequest.Builder()
             .withBaseDirectory(TestConfiguration.appLocation())
             .withArgs(quarkusMavenPluginCreate)
-            .withProperties(properties)
+            .withProperties(mavenProperties)
             .withLogFile(getLogPath(Phase.GENERATE))
             .withLogMarker(LogStream.marker(getName(), Phase.GENERATE))
             .build()
         );
 
-        IntegrationGenerator.createFiles(integrationBuilder, TestConfiguration.appLocation().resolve(getName()));
+        IntegrationGenerator.createFiles(integrationBuilder, appDir);
     }
 
     /**
@@ -127,21 +144,21 @@ public abstract class QuarkusApp extends App {
      */
     private void customizeProject(List<Dependency> dependencies) {
         // Remove the GreetingResource.java file that is not used
-        final File greetingResource = TestConfiguration.appLocation().resolve(getName())
+        final File greetingResource = appDir
             .resolve("src/main/java/" + TestConfiguration.appGroupId().replace(".", "/") + "/GreetingResource.java").toFile();
         if (greetingResource.exists()) {
             greetingResource.delete();
         }
 
         // Delete autogenerated tests
-        final File tests = TestConfiguration.appLocation().resolve(getName()).resolve("src/test").toFile();
+        final File tests = appDir.resolve("src/test").toFile();
         try {
             FileUtils.deleteDirectory(tests);
         } catch (IOException e) {
             LOG.warn("Unable to delete {} directory", tests.getAbsolutePath(), e);
         }
 
-        File pom = TestConfiguration.appLocation().resolve(getName()).resolve("pom.xml").toFile();
+        File pom = appDir.resolve("pom.xml").toFile();
         Model model = Maven.loadPom(pom);
 
         // Append the camel platform bom (quarkus bom already present)

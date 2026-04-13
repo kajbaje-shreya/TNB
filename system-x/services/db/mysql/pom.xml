@@ -15,14 +15,10 @@
     <name>TNB :: System-X :: Services :: DB :: MySQL</name>
 
     <properties>
-        <mysql.driver.version>9.4.0</mysql.driver.version>
+        <mysql.driver.version>9.6.0</mysql.driver.version>
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
-        </dependency>
         <dependency>
             <groupId>software.tnb</groupId>
             <artifactId>system-x-db-common</artifactId>

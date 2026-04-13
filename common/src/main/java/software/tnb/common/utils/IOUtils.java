@@ -14,11 +14,10 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -39,9 +38,13 @@ public final class IOUtils {
     }
 
     public static void writeFile(Path file, String content) {
+        writeFile(file, content.getBytes());
+    }
+
+    public static void writeFile(Path file, byte[] content) {
         try {
             Files.createDirectories(file.getParent());
-            Files.write(file, content.getBytes());
+            Files.write(file, content);
         } catch (IOException e) {
             throw new RuntimeException("Unable to write to " + file, e);
         }
@@ -72,7 +75,10 @@ public final class IOUtils {
 
     public static String readFile(Path file) {
         try {
-            return Files.readString(file, Charset.defaultCharset());
+            // first read all the bytes and then construct the UTF-8 string out of those
+            // reading string directly may fail on windows (based on the original encoding of the file)
+            final byte[] s = Files.readAllBytes(file);
+            return new String(s, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new RuntimeException("Unable to read file " + file, e);
         }
@@ -182,14 +188,13 @@ public final class IOUtils {
         writeFile(input, content.get());
     }
 
-    public static Path zipFiles(String zipFileName, Path... files) {
-        LOG.info("Creating zip file {}.zip from files: {}", zipFileName, Arrays.stream(files).map(f -> f.getFileName().toString())
+    public static void zipFiles(Path zipFile, Path... files) {
+        LOG.info("Creating zip file {} from files: {}", zipFile, Arrays.stream(files).map(f -> f.getFileName().toString())
             .collect(Collectors.toList()));
-        final Path zipFile;
         try {
-            zipFile = Files.createFile(Paths.get("/tmp", zipFileName + ".zip"));
+            Files.createFile(zipFile);
         } catch (IOException e) {
-            throw new RuntimeException("Unable to create temp zip file: ", e);
+            throw new RuntimeException("Unable to create zip file: ", e);
         }
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile.toFile()))) {
             for (Path file : files) {
@@ -201,7 +206,6 @@ public final class IOUtils {
         } catch (IOException e) {
             throw new RuntimeException("Unable to add file to zip file: ", e);
         }
-        return zipFile;
     }
 
     public static String getExecInPath(String execName) {

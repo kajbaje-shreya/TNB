@@ -6,6 +6,7 @@ import software.tnb.common.deployment.WithOperatorHub;
 import software.tnb.common.openshift.OpenshiftClient;
 import software.tnb.common.utils.StringUtils;
 import software.tnb.common.utils.WaitUtils;
+import software.tnb.common.utils.waiter.Waiter;
 import software.tnb.opentelemetry.service.OpenTelemetryCollector;
 
 import org.slf4j.Logger;
@@ -37,8 +38,9 @@ public class OpenshiftOpenTelemetryCollector extends OpenTelemetryCollector impl
     @Override
     public void undeploy() {
 
-        OpenshiftClient.get().deleteCustomResource(apiVersion().split("/")[0], apiVersion().split("/")[1], kind(), OTEL_INSTANCE_NAME);
-        WaitUtils.waitFor(() -> servicePods().isEmpty(), "wait until collector pods are terminated");
+        OpenshiftClient.get().genericKubernetesResources(apiVersion(), kind()).inNamespace(OpenshiftClient.get().getNamespace())
+            .withName(OTEL_INSTANCE_NAME).delete();
+        WaitUtils.waitFor(new Waiter(() -> servicePods().isEmpty(), "wait until collector pods are terminated"));
 
         if (getConfiguration().isTempostack()) {
             //remove the cluster role binding
@@ -120,8 +122,8 @@ public class OpenshiftOpenTelemetryCollector extends OpenTelemetryCollector impl
     }
 
     @Override
-    public String getLog() {
-        return OpenshiftClient.get().getPodLog(servicePod().get());
+    public String getLogs() {
+        return OpenshiftDeployable.super.getLogs();
     }
 
     @Override

@@ -36,6 +36,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import io.fabric8.kubernetes.api.model.Pod;
+import io.fabric8.kubernetes.api.model.Volume;
+import io.fabric8.kubernetes.api.model.VolumeBuilder;
+import io.fabric8.kubernetes.api.model.VolumeMount;
+import io.fabric8.kubernetes.api.model.VolumeMountBuilder;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.fabric8.openshift.api.model.RouteBuilder;
 
 public class CustomJKubeStrategy extends OpenshiftCustomDeployer {
@@ -223,11 +229,55 @@ public class CustomJKubeStrategy extends OpenshiftCustomDeployer {
 
     private String getDeploymentContent() throws IOException {
         String deploymentContent = IOUtils.resourceToString("/openshift/csb/deployment.yaml", StandardCharsets.UTF_8);
+        deploymentContent = StringUtils.replace(deploymentContent, "XX_DEPLOYMENT_NAME",
+                integrationBuilder.getIntegrationName());
         deploymentContent = StringUtils.replace(deploymentContent, "XX_JAVA_OPTS_APPEND",
                 getPropertiesForJVM(integrationBuilder).replaceAll("\"", "\\\\\""));
         deploymentContent = StringUtils.replace(deploymentContent, "XX_NODE_HOSTNAME",
                 System.getProperty("node.hostname", ""));
+
+        deploymentContent = addVolumesAndMounts(deploymentContent);
+
         return deploymentContent;
+    }
+
+    private String addVolumesAndMounts(String deploymentContent) {
+        Deployment deployment = Serialization.unmarshal(deploymentContent, Deployment.class);
+
+        // Build and add volumes
+        List<Volume> volumes = integrationBuilder.getVolumes().stream()
+            .map(v -> {
+                VolumeBuilder builder = new VolumeBuilder().withName(v.name());
+                if ("configMap".equals(v.typeString())) {
+                    builder.withNewConfigMap().withName(v.source()).endConfigMap();
+                } else if ("secret".equals(v.typeString())) {
+                    builder.withNewSecret().withSecretName(v.source()).endSecret();
+                } else if ("emptyDir".equals(v.typeString())) {
+                    builder.withNewEmptyDir().endEmptyDir();
+                }
+                return builder.build();
+            })
+            .collect(Collectors.toList());
+
+        if (!volumes.isEmpty()) {
+            deployment.getSpec().getTemplate().getSpec().getVolumes().addAll(volumes);
+        }
+
+        // Build and add volume mounts
+        List<VolumeMount> volumeMounts = integrationBuilder.getVolumeMounts().stream()
+            .map(m -> new VolumeMountBuilder()
+                .withName(m.volumeName())
+                .withMountPath(m.mountPath())
+                .withReadOnly(m.readOnly())
+                .build())
+            .collect(Collectors.toList());
+
+        if (!volumeMounts.isEmpty()) {
+            deployment.getSpec().getTemplate().getSpec().getContainers().get(0)
+                .getVolumeMounts().addAll(volumeMounts);
+        }
+
+        return Serialization.asYaml(deployment);
     }
 
     private void createConfigMap(Path jkubeFolder, final File pomFile) {

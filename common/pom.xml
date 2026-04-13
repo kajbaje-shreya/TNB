@@ -17,8 +17,8 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <geronimo.config.version>1.2.3</geronimo.config.version>
-        <json.version>20250517</json.version>
+        <smallrye.version>3.16.0</smallrye.version>
+        <json.version>20251224</json.version>
     </properties>
 
     <dependencies>
@@ -41,9 +41,9 @@
             <artifactId>logging-interceptor</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.geronimo.config</groupId>
-            <artifactId>geronimo-config-impl</artifactId>
-            <version>${geronimo.config.version}</version>
+            <groupId>io.smallrye.config</groupId>
+            <artifactId>smallrye-config</artifactId>
+            <version>${smallrye.version}</version>
         </dependency>
         <dependency>
             <groupId>cz.xtf</groupId>

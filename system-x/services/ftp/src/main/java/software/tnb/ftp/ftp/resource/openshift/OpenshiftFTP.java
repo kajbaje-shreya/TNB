@@ -132,11 +132,6 @@ public class OpenshiftFTP extends FTP implements OpenshiftDeployable, WithName, 
     }
 
     @Override
-    public String logs() {
-        return OpenshiftClient.get().getLogs(servicePod().get());
-    }
-
-    @Override
     public String host() {
         return inClusterHostname();
     }
@@ -144,6 +139,12 @@ public class OpenshiftFTP extends FTP implements OpenshiftDeployable, WithName, 
     @Override
     public String hostForActiveConnection() {
         return servicePod().get().getStatus().getPodIP();
+    }
+
+    @Override
+    public String getLogs() {
+        return Optional.ofNullable(servicePod())
+            .map(pod -> OpenshiftClient.get().getLogs(pod.get())).orElse(null);
     }
 
     public class OpenShiftFTPClient implements CustomFTPClient {

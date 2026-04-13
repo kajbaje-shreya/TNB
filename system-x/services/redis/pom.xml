@@ -14,14 +14,10 @@
     <name>TNB :: System-X :: Services :: Redis</name>
 
     <properties>
-        <lettuce.core.version>7.0.0.RELEASE</lettuce.core.version>
+        <lettuce.core.version>7.5.0.RELEASE</lettuce.core.version>
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
-        </dependency>
         <dependency>
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>

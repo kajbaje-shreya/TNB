@@ -1,42 +1,26 @@
 package software.tnb.filesystem.resource.local;
 
 import software.tnb.common.deployment.Deployable;
-import software.tnb.common.utils.IOUtils;
 import software.tnb.filesystem.service.FileSystem;
-
-import org.apache.commons.io.FileUtils;
+import software.tnb.filesystem.validation.FileSystemValidation;
+import software.tnb.filesystem.validation.LocalFileSystemValidation;
 
 import com.google.auto.service.AutoService;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @AutoService(FileSystem.class)
 public class LocalFileSystem extends FileSystem implements Deployable {
-    @Override
-    public void setAppName(String app) {
+    public FileSystemValidation validation() {
+        if (validation == null) {
+            validation = new LocalFileSystemValidation();
+        }
+        return validation;
     }
 
     @Override
-    public String getFileContent(Path path) {
-        return IOUtils.readFile(path);
-    }
-
-    @Override
-    public boolean createFile(Path directory, String filename, String content) throws IOException {
-        Files.write(Path.of(directory.toFile().getAbsolutePath(), filename), content.getBytes());
-
-        return true;
-    }
-
-    @Override
-    public void copyFile(Path srcPath, Path destPath) throws IOException {
-        FileUtils.copyFile(srcPath.toFile(), destPath.toFile());
-    }
-
-    @Override
-    public Path createTempDirectory() throws IOException {
-        return Files.createTempDirectory("tnb-filesystem");
+    public Path root() {
+        return Paths.get("target", "tnb-filesystem").toAbsolutePath();
     }
 }

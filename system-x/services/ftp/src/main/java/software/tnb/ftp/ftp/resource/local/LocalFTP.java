@@ -1,6 +1,6 @@
 package software.tnb.ftp.ftp.resource.local;
 
-import software.tnb.common.deployment.Deployable;
+import software.tnb.common.deployment.ContainerDeployable;
 import software.tnb.ftp.ftp.service.CustomFTPClient;
 import software.tnb.ftp.ftp.service.FTP;
 
@@ -15,32 +15,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @AutoService(FTP.class)
-public class LocalFTP extends FTP implements Deployable {
+public class LocalFTP extends FTP implements ContainerDeployable<FTPContainer> {
     private static final Logger LOG = LoggerFactory.getLogger(LocalFTP.class);
     private FTPContainer container;
     private final CustomFTPClient client = new TestContainerFTPOutOfBandClient();
-
-    @Override
-    public void deploy() {
-        LOG.info("Starting FTP container");
-        container = new FTPContainer(image(), containerEnvironment(), containerPorts());
-        container.start();
-        LOG.info("FTP container started");
-    }
-
-    @Override
-    public void undeploy() {
-        if (container != null) {
-            LOG.info("Stopping FTP container");
-            container.stop();
-        }
-    }
 
     @Override
     public void openResources() {
@@ -58,29 +39,26 @@ public class LocalFTP extends FTP implements Deployable {
     }
 
     @Override
-    public String logs() {
-        try {
-            Map<String, String> env = Arrays.stream(container.execInContainer("env").getStdout().split("\n"))
-                .collect(Collectors.toMap(
-                    envPair -> envPair.split("=")[0],
-                    envPair -> envPair.split("=")[1]));
-            if (env.containsKey("FTP_SERVER_DIR")) {
-                return container.execInContainer("cat", String.format("%s/res/log/ftpd.log", env.get("FTP_SERVER_DIR"))).getStdout();
-            }
-        } catch (IOException | InterruptedException e) {
-            LOG.warn("unable to read log file", e);
-        }
-        return "";
-    }
-
-    @Override
     public String host() {
-        return container.getHost();
+        return container().getHost();
     }
 
     @Override
     public String hostForActiveConnection() {
         return host();
+    }
+
+    @Override
+    public FTPContainer container() {
+        if (container == null) {
+            container = new FTPContainer(image(), containerEnvironment(), containerPorts());
+        }
+        return container;
+    }
+
+    @Override
+    public String getLogs() {
+        return container().getLogs();
     }
 
     /**
@@ -90,7 +68,7 @@ public class LocalFTP extends FTP implements Deployable {
 
         @Override
         public void storeFile(String fileName, InputStream fileContent) throws IOException {
-            container.copyFileToContainer(Transferable.of(fileContent.readAllBytes(), 040777),
+            container().copyFileToContainer(Transferable.of(fileContent.readAllBytes(), 040777),
                 basePath() + "/" + fileName);
         }
 
@@ -98,7 +76,7 @@ public class LocalFTP extends FTP implements Deployable {
         public void retrieveFile(String fileName, OutputStream local) throws IOException {
             Path tempFile = Files.createTempFile(null, null);
             try {
-                container.copyFileFromContainer(basePath() + "/" + fileName, tempFile.toString());
+                container().copyFileFromContainer(basePath() + "/" + fileName, tempFile.toString());
                 org.apache.commons.io.IOUtils.copy(Files.newInputStream(tempFile), local);
             } finally {
                 tempFile.toFile().delete();
@@ -108,7 +86,7 @@ public class LocalFTP extends FTP implements Deployable {
         @Override
         public void makeDirectory(String dirName) throws IOException {
             try {
-                container.execInContainer("mkdir", "-m", "a=rwx", String.format("%s/%s", basePath(), dirName));
+                container().execInContainer("mkdir", "-m", "a=rwx", String.format("%s/%s", basePath(), dirName));
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
@@ -117,7 +95,7 @@ public class LocalFTP extends FTP implements Deployable {
         @Override
         public List<String> listFolder(String dirName) throws IOException {
             try {
-                return List.of(container.execInContainer("/bin/bash", "-c", String.format("ls -p %s/%s | grep -v /", basePath(), dirName))
+                return List.of(container().execInContainer("/bin/bash", "-c", String.format("ls -p %s/%s | grep -v /", basePath(), dirName))
                     .getStdout().split("\n"));
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);

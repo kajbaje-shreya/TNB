@@ -1,6 +1,7 @@
 package software.tnb.product.application;
 
 import software.tnb.common.config.TestConfiguration;
+import software.tnb.common.config.WindowsConfiguration;
 import software.tnb.common.exception.FailureConditionMetException;
 import software.tnb.common.utils.WaitUtils;
 import software.tnb.common.utils.waiter.Waiter;
@@ -55,6 +56,9 @@ public abstract class App {
     private static final String JBANG_SCRIPT_NAME = "camel";
     protected static boolean camelInPath = false;
 
+    // path to the final jar file
+    protected String path;
+
     public App(AbstractIntegrationBuilder<?> integrationBuilder) {
         this(integrationBuilder.getIntegrationName());
         this.integrationBuilder = integrationBuilder;
@@ -79,7 +83,7 @@ public abstract class App {
     }
 
     protected boolean shouldRun() {
-        return true;
+        return integrationBuilder.runApplication();
     }
 
     public abstract void start();
@@ -192,7 +196,11 @@ public abstract class App {
             camelInPath = true;
         }
 
-        ProcessBuilder processBuilder = new ProcessBuilder("camel", "--version");
+        List<String> command = List.of("camel", "--version");
+        if (WindowsConfiguration.isWindows()) {
+            command = convertToWindowsBashCommand(null, command);
+        }
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
         String version;
         try {
             Process process = processBuilder.start();
@@ -209,7 +217,7 @@ public abstract class App {
         IntegrationGenerator.createAdditionalClasses(integrationBuilder, appDir);
         IntegrationGenerator.createRouteBuilderClasses(integrationBuilder, appDir);
 
-        List<String> command = new ArrayList<>(List.of(
+        command = new ArrayList<>(List.of(
             "camel", "export",
             "--gav", TestConfiguration.appGroupId() + ":" + getName() + ":" + TestConfiguration.appVersion(),
             "--dir", ".",
@@ -250,17 +258,22 @@ public abstract class App {
         // application.properties are loaded automatically when they are in the root of the dir
         IntegrationGenerator.createApplicationProperties(integrationBuilder, appDir);
 
-        LOG.trace("Camel JBang command: {}", String.join(" ", command));
-
         int exitCode = -1;
         boolean hasExited;
         File logFile = new File(getLogPath(Phase.GENERATE).toAbsolutePath().toString());
         LogStream generateLogStream = new FileLogStream(logFile.toPath(), LogStream.marker(getName(), Phase.GENERATE));
+
+        if (WindowsConfiguration.isWindows()) {
+            command = convertToWindowsBashCommand(appDir, command);
+        }
+
+        LOG.trace("Camel JBang command: {}", String.join(" ", command));
+
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectOutput(logFile);
             pb.redirectErrorStream(true);
-            pb.directory(TestConfiguration.appLocation().resolve(getName()).toFile());
+            pb.directory(appDir.toFile());
             final Process process = pb.start();
             hasExited = process.waitFor(20, TimeUnit.MINUTES);
             if (hasExited) {
@@ -287,5 +300,33 @@ public abstract class App {
 
     public int getPort() {
         return integrationBuilder.getPort();
+    }
+
+    public String getPath() {
+        return path;
+    }
+
+    /**
+     * Converts the command to be executed by cygwin's bash
+     * @param targetDirectory directory to cd into
+     * @param command command to invoke
+     * @return new command
+     */
+    private List<String> convertToWindowsBashCommand(Path targetDirectory, List<String> command) {
+        List<String> cmd = new ArrayList<>(List.of(WindowsConfiguration.cygwinBashPath(), "-l", "-c"));
+        // some things expect a windows path (C:\Users\...), cygwin expects cygpath (/cygdrive/c/...) so the only thing to align those
+        // is to cd into the directory and use relative paths
+
+        StringBuilder commandString = new StringBuilder("\"");
+
+        if (targetDirectory != null) {
+            commandString.append("cd $(cygpath ").append(targetDirectory.toAbsolutePath().toString().replaceAll("\\\\", "/")).append(");");
+        }
+
+        commandString.append(String.join(" ", command));
+        commandString.append("\"");
+
+        cmd.add(commandString.toString());
+        return cmd;
     }
 }

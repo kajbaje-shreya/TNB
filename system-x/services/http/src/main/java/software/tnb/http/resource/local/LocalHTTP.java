@@ -1,33 +1,13 @@
 package software.tnb.http.resource.local;
 
-import software.tnb.common.deployment.Deployable;
+import software.tnb.common.deployment.ContainerDeployable;
 import software.tnb.http.service.HTTP;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.auto.service.AutoService;
 
 @AutoService(HTTP.class)
-public class LocalHTTP extends HTTP implements Deployable {
-    private static final Logger LOG = LoggerFactory.getLogger(HTTP.class);
-    private HTTPContainer container;
-
-    @Override
-    public void deploy() {
-        LOG.info("Starting Http container");
-        container = new HTTPContainer(image());
-        container.start();
-        LOG.info("Http container started");
-    }
-
-    @Override
-    public void undeploy() {
-        if (container != null) {
-            LOG.info("Stopping Http container");
-            container.stop();
-        }
-    }
+public class LocalHTTP extends HTTP implements ContainerDeployable<HTTPContainer> {
+    private final HTTPContainer container = new HTTPContainer(image());
 
     @Override
     public void openResources() {
@@ -40,8 +20,23 @@ public class LocalHTTP extends HTTP implements Deployable {
     }
 
     @Override
-    public String getLog() {
-        return container.getLogs();
+    public String getHost() {
+        return container.getHost();
+    }
+
+    @Override
+    public int getHttpPort() {
+        return container.getHttpPort();
+    }
+
+    @Override
+    public int getHttpsPort() {
+        return container.getHttpsPort();
+    }
+
+    @Override
+    public String getLogs() {
+        return ContainerDeployable.super.getLogs();
     }
 
     @Override
@@ -52,5 +47,10 @@ public class LocalHTTP extends HTTP implements Deployable {
     @Override
     public String httpsUrl() {
         return String.format("https://%s:%d/", container.getHost(), container.getHttpsPort());
+    }
+
+    @Override
+    public HTTPContainer container() {
+        return container;
     }
 }

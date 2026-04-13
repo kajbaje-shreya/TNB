@@ -14,16 +14,11 @@
     <name>TNB :: System-X :: Services :: FTP</name>
 
     <properties>
-        <ftp.client.version>3.12.0</ftp.client.version>
+        <ftp.client.version>3.13.0</ftp.client.version>
         <sftp.client.version>0.40.0</sftp.client.version>
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
-        </dependency>
-
         <!-- FTP client -->
         <dependency>
             <groupId>commons-net</groupId>
