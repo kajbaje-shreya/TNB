@@ -160,7 +160,7 @@ public abstract class App {
                 "Waiting until the integration " + getName() + " is running")
                 .failureCondition(this::isFailed)
                 .interval(5000L)
-                .retryTimeout(1200000L)
+                .timeout(1200000L)
                 .failureException(exception)
             );
             started = true;
